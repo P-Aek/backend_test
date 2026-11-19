@@ -50,7 +50,7 @@ class Solution:
 
         # วนลูปใน digits output ค่า (i,digit)
         for i, digit in enumerate(digits):
-            place_index = len(digits) - i - 1 # หาตำแหน่งของ index -> เช่น 123: place_index ของ 1 = 3 - 0 - 1 = 2 -> เลข 1 อยู่ใน place_words[2] = "ร้อย" 
+            place_index = len(digits) - i - 1 # หาตำแหน่งของ index -> เช่น "123": place_index ของ 1 = 3 - 0 - 1 = 2 -> เลข 1 อยู่ใน place_words[2] = "ร้อย" 
 
             if digit == "0":
                 continue # ถ้าเจอ 0 ให้ไปต่อ
