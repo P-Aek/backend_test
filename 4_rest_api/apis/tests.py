@@ -4,6 +4,12 @@ from django.db.models import Count
 from django.test import TestCase
 
 from apis.admin import ClassroomAdmin, SchoolAdmin, StudentAdmin, TeacherAdmin
+from apis.filters import (
+    ClassroomFilter,
+    SchoolFilter,
+    StudentFilter,
+    TeacherFilter,
+)
 from apis.models import Classroom, Gender, School, Student, Teacher
 from apis.serializers import (
     ClassroomDetailSerializer,
@@ -500,3 +506,233 @@ class StudentSerializerTests(TestCase):
                 "school": self.school.school_id,
             },
         )
+
+
+class SchoolFilterTests(TestCase):
+    def setUp(self):
+        self.s1 = School.objects.create(
+            school_fullname="Bangkok Wittaya School",
+            school_shortname="BWS",
+            school_add="123 Sukhumvit Rd",
+        )
+        self.s2 = School.objects.create(
+            school_fullname="Chiang Mai International Academy",
+            school_shortname="CMIA",
+            school_add="99 Nimman Rd",
+        )
+
+    def test_filter_by_partial_fullname_case_insensitive(self):
+        qs = SchoolFilter({"name": "wittaya"}, queryset=School.objects.all()).qs
+        self.assertEqual(list(qs), [self.s1])
+
+    def test_filter_by_partial_shortname_case_insensitive(self):
+        qs = SchoolFilter({"name": "cmi"}, queryset=School.objects.all()).qs
+        self.assertEqual(list(qs), [self.s2])
+
+    def test_filter_by_non_matching_name_returns_empty(self):
+        qs = SchoolFilter({"name": "NonExistent"}, queryset=School.objects.all()).qs
+        self.assertEqual(list(qs), [])
+
+
+class ClassroomFilterTests(TestCase):
+    def setUp(self):
+        self.s1 = School.objects.create(
+            school_fullname="Bangkok Wittaya School",
+            school_shortname="BWS",
+            school_add="123 Sukhumvit Rd",
+        )
+        self.s2 = School.objects.create(
+            school_fullname="Chiang Mai School",
+            school_shortname="CMS",
+            school_add="99 Nimman Rd",
+        )
+        self.c1 = Classroom.objects.create(
+            classroom_year="M.1", classroom_tap="1", school=self.s1
+        )
+        self.c2 = Classroom.objects.create(
+            classroom_year="M.1", classroom_tap="2", school=self.s1
+        )
+        self.c3 = Classroom.objects.create(
+            classroom_year="M.2", classroom_tap="1", school=self.s2
+        )
+
+    def test_filter_by_school_id(self):
+        qs = ClassroomFilter(
+            {"school": self.s1.school_id}, queryset=Classroom.objects.all()
+        ).qs
+        self.assertEqual(set(qs), {self.c1, self.c2})
+
+        qs_other = ClassroomFilter(
+            {"school": self.s2.school_id}, queryset=Classroom.objects.all()
+        ).qs
+        self.assertEqual(list(qs_other), [self.c3])
+
+
+class TeacherFilterTests(TestCase):
+    def setUp(self):
+        self.s1 = School.objects.create(
+            school_fullname="Bangkok Wittaya School",
+            school_shortname="BWS",
+            school_add="123 Sukhumvit Rd",
+        )
+        self.s2 = School.objects.create(
+            school_fullname="Chiang Mai School",
+            school_shortname="CMS",
+            school_add="99 Nimman Rd",
+        )
+        self.c1 = Classroom.objects.create(
+            classroom_year="M.1", classroom_tap="1", school=self.s1
+        )
+        self.c2 = Classroom.objects.create(
+            classroom_year="M.1", classroom_tap="2", school=self.s1
+        )
+        self.c3 = Classroom.objects.create(
+            classroom_year="M.2", classroom_tap="1", school=self.s2
+        )
+
+        # Teacher assigned to 2 classrooms in the same school
+        self.t1 = Teacher.objects.create(
+            teacher_firstname="Somchai",
+            teacher_lastname="Jaidee",
+            teacher_gender=Gender.MALE,
+        )
+        self.t1.classrooms.add(self.c1, self.c2)
+
+        self.t2 = Teacher.objects.create(
+            teacher_firstname="Suda",
+            teacher_lastname="Rakdee",
+            teacher_gender=Gender.FEMALE,
+        )
+        self.t2.classrooms.add(self.c2)
+
+        self.t3 = Teacher.objects.create(
+            teacher_firstname="Narin",
+            teacher_lastname="Jaidee",
+            teacher_gender=Gender.OTHER,
+        )
+        self.t3.classrooms.add(self.c3)
+
+    def test_filter_by_school_returns_distinct_teachers(self):
+        qs = TeacherFilter(
+            {"school": self.s1.school_id}, queryset=Teacher.objects.all()
+        ).qs
+        result = list(qs)
+        self.assertEqual(len(result), 2)
+        self.assertEqual(set(result), {self.t1, self.t2})
+
+    def test_filter_by_classroom(self):
+        qs = TeacherFilter(
+            {"classroom": self.c1.classroom_id}, queryset=Teacher.objects.all()
+        ).qs
+        self.assertEqual(list(qs), [self.t1])
+
+    def test_filter_by_firstname_and_lastname(self):
+        qs_first = TeacherFilter(
+            {"firstname": "som"}, queryset=Teacher.objects.all()
+        ).qs
+        self.assertEqual(list(qs_first), [self.t1])
+
+        qs_last = TeacherFilter(
+            {"lastname": "jaidee"}, queryset=Teacher.objects.all()
+        ).qs
+        self.assertEqual(set(qs_last), {self.t1, self.t3})
+
+    def test_filter_by_gender(self):
+        qs = TeacherFilter(
+            {"gender": Gender.FEMALE}, queryset=Teacher.objects.all()
+        ).qs
+        self.assertEqual(list(qs), [self.t2])
+
+    def test_combined_filters(self):
+        qs = TeacherFilter(
+            {
+                "school": self.s1.school_id,
+                "lastname": "jaidee",
+                "gender": Gender.MALE,
+            },
+            queryset=Teacher.objects.all(),
+        ).qs
+        self.assertEqual(list(qs), [self.t1])
+
+
+class StudentFilterTests(TestCase):
+    def setUp(self):
+        self.s1 = School.objects.create(
+            school_fullname="Bangkok Wittaya School",
+            school_shortname="BWS",
+            school_add="123 Sukhumvit Rd",
+        )
+        self.s2 = School.objects.create(
+            school_fullname="Chiang Mai School",
+            school_shortname="CMS",
+            school_add="99 Nimman Rd",
+        )
+        self.c1 = Classroom.objects.create(
+            classroom_year="M.1", classroom_tap="1", school=self.s1
+        )
+        self.c2 = Classroom.objects.create(
+            classroom_year="M.1", classroom_tap="2", school=self.s1
+        )
+        self.c3 = Classroom.objects.create(
+            classroom_year="M.2", classroom_tap="1", school=self.s2
+        )
+
+        self.st1 = Student.objects.create(
+            student_firstname="Anan",
+            student_lastname="Sukjai",
+            student_gender=Gender.MALE,
+            classroom=self.c1,
+        )
+        self.st2 = Student.objects.create(
+            student_firstname="Malee",
+            student_lastname="Deejai",
+            student_gender=Gender.FEMALE,
+            classroom=self.c2,
+        )
+        self.st3 = Student.objects.create(
+            student_firstname="Ananya",
+            student_lastname="Sukjai",
+            student_gender=Gender.FEMALE,
+            classroom=self.c3,
+        )
+
+    def test_filter_by_school(self):
+        qs = StudentFilter(
+            {"school": self.s1.school_id}, queryset=Student.objects.all()
+        ).qs
+        self.assertEqual(set(qs), {self.st1, self.st2})
+
+    def test_filter_by_classroom(self):
+        qs = StudentFilter(
+            {"classroom": self.c2.classroom_id}, queryset=Student.objects.all()
+        ).qs
+        self.assertEqual(list(qs), [self.st2])
+
+    def test_filter_by_firstname_and_lastname(self):
+        qs_first = StudentFilter(
+            {"firstname": "anan"}, queryset=Student.objects.all()
+        ).qs
+        self.assertEqual(set(qs_first), {self.st1, self.st3})
+
+        qs_last = StudentFilter(
+            {"lastname": "deejai"}, queryset=Student.objects.all()
+        ).qs
+        self.assertEqual(list(qs_last), [self.st2])
+
+    def test_filter_by_gender(self):
+        qs = StudentFilter(
+            {"gender": Gender.FEMALE}, queryset=Student.objects.all()
+        ).qs
+        self.assertEqual(set(qs), {self.st2, self.st3})
+
+    def test_combined_filters(self):
+        qs = StudentFilter(
+            {
+                "school": self.s1.school_id,
+                "classroom": self.c1.classroom_id,
+                "firstname": "anan",
+                "gender": Gender.MALE,
+            },
+            queryset=Student.objects.all(),
+        ).qs
+        self.assertEqual(list(qs), [self.st1])
