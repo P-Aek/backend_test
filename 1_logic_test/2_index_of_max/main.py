@@ -32,12 +32,13 @@ class Solution:
                 max_index = i
         return max_index
 
-sol = Solution()
-# example1 : [1,2,1,3,5,6,4]
-nums0 = [1,2,1,3,5,6,4]
-result = sol.find_max_index(nums0)
-print(result)
-# example2 : []
-nums1 = []
-result = sol.find_max_index(nums1)
-print(result)
+if __name__ == "__main__":
+    sol = Solution()
+    # example1 : [1,2,1,3,5,6,4]
+    nums0 = [1,2,1,3,5,6,4]
+    result = sol.find_max_index(nums0)
+    print(result)
+    # example2 : []
+    nums1 = []
+    result = sol.find_max_index(nums1)
+    print(result)

@@ -34,8 +34,9 @@ class Solution:
             fac //= 10 # หารตัดเศษออก
         return count # คืนค่าที่นับออกมา
 
-sol = Solution()
-# example
-number = int(input("input = "))
-result = sol.find_tailing_zeroes(number)
-print(f"output = {result}")
+if __name__ == "__main__":
+    sol = Solution()
+    # example
+    number = int(input("input = "))
+    result = sol.find_tailing_zeroes(number)
+    print(f"output = {result}")

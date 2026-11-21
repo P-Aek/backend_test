@@ -54,6 +54,7 @@ class Solution:
 
         return "".join(roman)
 
-sol = Solution()
-number = int(input("input: "))
-print(f"output: {sol.number_to_roman(number)}")
+if __name__ == "__main__":
+    sol = Solution()
+    number = int(input("input: "))
+    print(f"output: {sol.number_to_roman(number)}")

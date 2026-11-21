@@ -71,6 +71,7 @@ class Solution:
         return "".join(words)
 
 
-sol = Solution()
-number = int(input("input: "))
-print(f"Output: {sol.number_to_thai(number)}")
+if __name__ == "__main__":
+    sol = Solution()
+    number = int(input("input: "))
+    print(f"Output: {sol.number_to_thai(number)}")
