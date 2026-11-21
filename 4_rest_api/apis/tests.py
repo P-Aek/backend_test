@@ -1,7 +1,10 @@
 from django.contrib import admin
+from django.contrib.auth import get_user_model
 from django.db import IntegrityError
 from django.db.models import Count
 from django.test import TestCase
+from rest_framework import status
+from rest_framework.test import APITestCase
 
 from apis.admin import ClassroomAdmin, SchoolAdmin, StudentAdmin, TeacherAdmin
 from apis.filters import (
@@ -736,3 +739,652 @@ class StudentFilterTests(TestCase):
             queryset=Student.objects.all(),
         ).qs
         self.assertEqual(list(qs), [self.st1])
+
+
+class SchoolAPITests(APITestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            username="school_tester", password="testpassword123"
+        )
+        self.client.credentials(HTTP_ACCEPT="application/json")
+        self.client.force_authenticate(user=self.user)
+
+        self.s1 = School.objects.create(
+            school_fullname="Bangkok Wittaya School",
+            school_shortname="BWS",
+            school_add="123 Sukhumvit Rd, Bangkok",
+        )
+        self.s2 = School.objects.create(
+            school_fullname="Chiang Mai International Academy",
+            school_shortname="CMIA",
+            school_add="99 Nimman Rd, Chiang Mai",
+        )
+
+    def test_unauthenticated_list_rejected(self):
+        self.client.force_authenticate(user=None)
+        response = self.client.get("/api/v1/schools/")
+        self.assertIn(
+            response.status_code,
+            (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN),
+        )
+
+    def test_create_school(self):
+        payload = {
+            "school_fullname": "Phuket Science School",
+            "school_shortname": "PSS",
+            "school_add": "55 Thalang Rd, Phuket",
+        }
+        response = self.client.post("/api/v1/schools/", payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["school_fullname"], "Phuket Science School")
+        self.assertEqual(response.data["school_shortname"], "PSS")
+        self.assertTrue(
+            School.objects.filter(school_id=response.data["school_id"]).exists()
+        )
+
+    def test_list_and_filter_schools_by_name(self):
+        response = self.client.get("/api/v1/schools/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 2)
+
+        by_fullname = self.client.get("/api/v1/schools/", {"name": "wittaya"})
+        self.assertEqual(by_fullname.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [item["school_id"] for item in by_fullname.data], [self.s1.school_id]
+        )
+
+        by_shortname = self.client.get("/api/v1/schools/", {"name": "cmi"})
+        self.assertEqual(by_shortname.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [item["school_id"] for item in by_shortname.data], [self.s2.school_id]
+        )
+
+    def test_retrieve_school_detail_counts(self):
+        c1 = Classroom.objects.create(
+            classroom_year="M.1", classroom_tap="1", school=self.s1
+        )
+        c2 = Classroom.objects.create(
+            classroom_year="M.1", classroom_tap="2", school=self.s1
+        )
+        other_c = Classroom.objects.create(
+            classroom_year="M.2", classroom_tap="1", school=self.s2
+        )
+
+        # Teacher assigned to 2 classrooms of the same school should be counted once
+        t1 = Teacher.objects.create(
+            teacher_firstname="Somchai",
+            teacher_lastname="Jaidee",
+            teacher_gender=Gender.MALE,
+        )
+        t1.classrooms.add(c1, c2)
+
+        t2 = Teacher.objects.create(
+            teacher_firstname="Suda",
+            teacher_lastname="Rakdee",
+            teacher_gender=Gender.FEMALE,
+        )
+        t2.classrooms.add(c2)
+
+        other_t = Teacher.objects.create(
+            teacher_firstname="Narin",
+            teacher_lastname="North",
+            teacher_gender=Gender.OTHER,
+        )
+        other_t.classrooms.add(other_c)
+
+        Student.objects.create(
+            student_firstname="Anan",
+            student_lastname="Sukjai",
+            student_gender=Gender.MALE,
+            classroom=c1,
+        )
+        Student.objects.create(
+            student_firstname="Malee",
+            student_lastname="Deejai",
+            student_gender=Gender.FEMALE,
+            classroom=c2,
+        )
+        Student.objects.create(
+            student_firstname="Kanya",
+            student_lastname="Other",
+            student_gender=Gender.FEMALE,
+            classroom=other_c,
+        )
+
+        response = self.client.get(f"/api/v1/schools/{self.s1.school_id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["school_id"], self.s1.school_id)
+        self.assertEqual(response.data["classroom_count"], 2)
+        self.assertEqual(response.data["teacher_count"], 2)
+        self.assertEqual(response.data["student_count"], 2)
+
+    def test_update_school_patch_and_put(self):
+        patch_resp = self.client.patch(
+            f"/api/v1/schools/{self.s1.school_id}/",
+            {"school_shortname": "BWS-NEW"},
+            format="json",
+        )
+        self.assertEqual(patch_resp.status_code, status.HTTP_200_OK)
+        self.s1.refresh_from_db()
+        self.assertEqual(self.s1.school_shortname, "BWS-NEW")
+
+        put_resp = self.client.put(
+            f"/api/v1/schools/{self.s1.school_id}/",
+            {
+                "school_fullname": "Bangkok Wittaya Academy",
+                "school_shortname": "BWA",
+                "school_add": "456 Rama IV Rd, Bangkok",
+            },
+            format="json",
+        )
+        self.assertEqual(put_resp.status_code, status.HTTP_200_OK)
+        self.s1.refresh_from_db()
+        self.assertEqual(self.s1.school_fullname, "Bangkok Wittaya Academy")
+        self.assertEqual(self.s1.school_shortname, "BWA")
+        self.assertEqual(self.s1.school_add, "456 Rama IV Rd, Bangkok")
+
+    def test_delete_school(self):
+        response = self.client.delete(f"/api/v1/schools/{self.s1.school_id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(School.objects.filter(school_id=self.s1.school_id).exists())
+
+
+class ClassroomAPITests(APITestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            username="classroom_tester", password="testpassword123"
+        )
+        self.client.credentials(HTTP_ACCEPT="application/json")
+        self.client.force_authenticate(user=self.user)
+
+        self.s1 = School.objects.create(
+            school_fullname="Bangkok Wittaya School",
+            school_shortname="BWS",
+            school_add="123 Sukhumvit Rd",
+        )
+        self.s2 = School.objects.create(
+            school_fullname="Chiang Mai School",
+            school_shortname="CMS",
+            school_add="99 Nimman Rd",
+        )
+        self.c1 = Classroom.objects.create(
+            classroom_year="M.1", classroom_tap="1", school=self.s1
+        )
+        self.c2 = Classroom.objects.create(
+            classroom_year="M.1", classroom_tap="2", school=self.s1
+        )
+        self.c3 = Classroom.objects.create(
+            classroom_year="M.2", classroom_tap="1", school=self.s2
+        )
+
+    def test_create_classroom(self):
+        payload = {
+            "classroom_year": "M.3",
+            "classroom_tap": "4",
+            "school": self.s1.school_id,
+        }
+        response = self.client.post("/api/v1/classrooms/", payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.data["classroom_year"], "M.3")
+        self.assertEqual(response.data["school"], self.s1.school_id)
+        self.assertTrue(
+            Classroom.objects.filter(
+                classroom_id=response.data["classroom_id"]
+            ).exists()
+        )
+
+    def test_list_and_filter_classrooms_by_school(self):
+        response = self.client.get("/api/v1/classrooms/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data), 3)
+
+        filtered = self.client.get(
+            "/api/v1/classrooms/", {"school": self.s1.school_id}
+        )
+        self.assertEqual(filtered.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {item["classroom_id"] for item in filtered.data},
+            {self.c1.classroom_id, self.c2.classroom_id},
+        )
+
+    def test_retrieve_classroom_detail_with_nested_teachers_and_students(self):
+        teacher = Teacher.objects.create(
+            teacher_firstname="Somchai",
+            teacher_lastname="Jaidee",
+            teacher_gender=Gender.MALE,
+        )
+        teacher.classrooms.add(self.c1)
+
+        student = Student.objects.create(
+            student_firstname="Anan",
+            student_lastname="Sukjai",
+            student_gender=Gender.MALE,
+            classroom=self.c1,
+        )
+
+        response = self.client.get(f"/api/v1/classrooms/{self.c1.classroom_id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["classroom_id"], self.c1.classroom_id)
+        self.assertEqual(
+            response.data["teachers"],
+            [
+                {
+                    "teacher_id": teacher.teacher_id,
+                    "teacher_firstname": "Somchai",
+                    "teacher_lastname": "Jaidee",
+                    "teacher_gender": Gender.MALE,
+                }
+            ],
+        )
+        self.assertEqual(
+            response.data["students"],
+            [
+                {
+                    "student_id": student.student_id,
+                    "student_firstname": "Anan",
+                    "student_lastname": "Sukjai",
+                    "student_gender": Gender.MALE,
+                }
+            ],
+        )
+
+    def test_update_classroom_patch_and_put(self):
+        patch_resp = self.client.patch(
+            f"/api/v1/classrooms/{self.c1.classroom_id}/",
+            {"classroom_tap": "9"},
+            format="json",
+        )
+        self.assertEqual(patch_resp.status_code, status.HTTP_200_OK)
+        self.c1.refresh_from_db()
+        self.assertEqual(self.c1.classroom_tap, "9")
+
+        put_resp = self.client.put(
+            f"/api/v1/classrooms/{self.c1.classroom_id}/",
+            {
+                "classroom_year": "M.4",
+                "classroom_tap": "2",
+                "school": self.s2.school_id,
+            },
+            format="json",
+        )
+        self.assertEqual(put_resp.status_code, status.HTTP_200_OK)
+        self.c1.refresh_from_db()
+        self.assertEqual(self.c1.classroom_year, "M.4")
+        self.assertEqual(self.c1.classroom_tap, "2")
+        self.assertEqual(self.c1.school_id, self.s2.school_id)
+
+    def test_delete_classroom(self):
+        response = self.client.delete(f"/api/v1/classrooms/{self.c1.classroom_id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(
+            Classroom.objects.filter(classroom_id=self.c1.classroom_id).exists()
+        )
+
+
+class TeacherAPITests(APITestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            username="teacher_tester", password="testpassword123"
+        )
+        self.client.credentials(HTTP_ACCEPT="application/json")
+        self.client.force_authenticate(user=self.user)
+
+        self.s1 = School.objects.create(
+            school_fullname="Bangkok Wittaya School",
+            school_shortname="BWS",
+            school_add="123 Sukhumvit Rd",
+        )
+        self.s2 = School.objects.create(
+            school_fullname="Chiang Mai School",
+            school_shortname="CMS",
+            school_add="99 Nimman Rd",
+        )
+        self.c1 = Classroom.objects.create(
+            classroom_year="M.1", classroom_tap="1", school=self.s1
+        )
+        self.c2 = Classroom.objects.create(
+            classroom_year="M.1", classroom_tap="2", school=self.s1
+        )
+        self.c3 = Classroom.objects.create(
+            classroom_year="M.2", classroom_tap="1", school=self.s2
+        )
+
+        # Assigned to 2 classrooms in s1
+        self.t1 = Teacher.objects.create(
+            teacher_firstname="Somchai",
+            teacher_lastname="Jaidee",
+            teacher_gender=Gender.MALE,
+        )
+        self.t1.classrooms.add(self.c1, self.c2)
+
+        self.t2 = Teacher.objects.create(
+            teacher_firstname="Suda",
+            teacher_lastname="Rakdee",
+            teacher_gender=Gender.FEMALE,
+        )
+        self.t2.classrooms.add(self.c2)
+
+        self.t3 = Teacher.objects.create(
+            teacher_firstname="Narin",
+            teacher_lastname="Jaidee",
+            teacher_gender=Gender.OTHER,
+        )
+        self.t3.classrooms.add(self.c3)
+
+    def test_create_teacher_with_multiple_and_no_classrooms(self):
+        multi_resp = self.client.post(
+            "/api/v1/teachers/",
+            {
+                "teacher_firstname": "Prasert",
+                "teacher_lastname": "Meechai",
+                "teacher_gender": Gender.MALE,
+                "classrooms": [self.c1.classroom_id, self.c2.classroom_id],
+            },
+            format="json",
+        )
+        self.assertEqual(multi_resp.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(
+            set(multi_resp.data["classrooms"]),
+            {self.c1.classroom_id, self.c2.classroom_id},
+        )
+
+        empty_resp = self.client.post(
+            "/api/v1/teachers/",
+            {
+                "teacher_firstname": "Kanya",
+                "teacher_lastname": "Srisuk",
+                "teacher_gender": Gender.FEMALE,
+                "classrooms": [],
+            },
+            format="json",
+        )
+        self.assertEqual(empty_resp.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(empty_resp.data["classrooms"], [])
+
+        omitted_resp = self.client.post(
+            "/api/v1/teachers/",
+            {
+                "teacher_firstname": "Wichai",
+                "teacher_lastname": "Panya",
+                "teacher_gender": Gender.OTHER,
+            },
+            format="json",
+        )
+        self.assertEqual(omitted_resp.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(omitted_resp.data["classrooms"], [])
+
+    def test_list_and_filter_teachers(self):
+        all_resp = self.client.get("/api/v1/teachers/")
+        self.assertEqual(all_resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(all_resp.data), 3)
+
+        # Must return t1 ONCE (no duplicates) despite assignment to 2 classrooms in s1
+        by_school = self.client.get("/api/v1/teachers/", {"school": self.s1.school_id})
+        self.assertEqual(by_school.status_code, status.HTTP_200_OK)
+        school_teacher_ids = [item["teacher_id"] for item in by_school.data]
+        self.assertEqual(len(school_teacher_ids), 2)
+        self.assertEqual(set(school_teacher_ids), {self.t1.teacher_id, self.t2.teacher_id})
+
+        by_classroom = self.client.get(
+            "/api/v1/teachers/", {"classroom": self.c1.classroom_id}
+        )
+        self.assertEqual(by_classroom.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [item["teacher_id"] for item in by_classroom.data], [self.t1.teacher_id]
+        )
+
+        by_firstname = self.client.get("/api/v1/teachers/", {"firstname": "som"})
+        self.assertEqual(by_firstname.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [item["teacher_id"] for item in by_firstname.data], [self.t1.teacher_id]
+        )
+
+        by_lastname = self.client.get("/api/v1/teachers/", {"lastname": "jaidee"})
+        self.assertEqual(by_lastname.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {item["teacher_id"] for item in by_lastname.data},
+            {self.t1.teacher_id, self.t3.teacher_id},
+        )
+
+        by_gender = self.client.get("/api/v1/teachers/", {"gender": Gender.FEMALE})
+        self.assertEqual(by_gender.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [item["teacher_id"] for item in by_gender.data], [self.t2.teacher_id]
+        )
+
+        combined = self.client.get(
+            "/api/v1/teachers/",
+            {
+                "school": self.s1.school_id,
+                "lastname": "jaidee",
+                "gender": Gender.MALE,
+            },
+        )
+        self.assertEqual(combined.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [item["teacher_id"] for item in combined.data], [self.t1.teacher_id]
+        )
+
+    def test_retrieve_teacher_detail_with_nested_classrooms(self):
+        response = self.client.get(f"/api/v1/teachers/{self.t1.teacher_id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["teacher_id"], self.t1.teacher_id)
+        self.assertEqual(len(response.data["classrooms"]), 2)
+        self.assertIsInstance(response.data["classrooms"][0], dict)
+        self.assertEqual(
+            {c["classroom_id"] for c in response.data["classrooms"]},
+            {self.c1.classroom_id, self.c2.classroom_id},
+        )
+        self.assertEqual(
+            set(response.data["classrooms"][0].keys()),
+            {"classroom_id", "classroom_year", "classroom_tap", "school"},
+        )
+
+    def test_update_teacher_patch_and_put(self):
+        patch_resp = self.client.patch(
+            f"/api/v1/teachers/{self.t1.teacher_id}/",
+            {"teacher_firstname": "Somchai-Updated"},
+            format="json",
+        )
+        self.assertEqual(patch_resp.status_code, status.HTTP_200_OK)
+        self.t1.refresh_from_db()
+        self.assertEqual(self.t1.teacher_firstname, "Somchai-Updated")
+
+        put_resp = self.client.put(
+            f"/api/v1/teachers/{self.t1.teacher_id}/",
+            {
+                "teacher_firstname": "Sompop",
+                "teacher_lastname": "Chaiyo",
+                "teacher_gender": Gender.OTHER,
+                "classrooms": [self.c3.classroom_id],
+            },
+            format="json",
+        )
+        self.assertEqual(put_resp.status_code, status.HTTP_200_OK)
+        self.t1.refresh_from_db()
+        self.assertEqual(self.t1.teacher_firstname, "Sompop")
+        self.assertEqual(self.t1.teacher_gender, Gender.OTHER)
+        self.assertEqual(list(self.t1.classrooms.all()), [self.c3])
+
+    def test_delete_teacher(self):
+        response = self.client.delete(f"/api/v1/teachers/{self.t1.teacher_id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(Teacher.objects.filter(teacher_id=self.t1.teacher_id).exists())
+
+
+class StudentAPITests(APITestCase):
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            username="student_tester", password="testpassword123"
+        )
+        self.client.credentials(HTTP_ACCEPT="application/json")
+        self.client.force_authenticate(user=self.user)
+
+        self.s1 = School.objects.create(
+            school_fullname="Bangkok Wittaya School",
+            school_shortname="BWS",
+            school_add="123 Sukhumvit Rd",
+        )
+        self.s2 = School.objects.create(
+            school_fullname="Chiang Mai School",
+            school_shortname="CMS",
+            school_add="99 Nimman Rd",
+        )
+        self.c1 = Classroom.objects.create(
+            classroom_year="M.1", classroom_tap="1", school=self.s1
+        )
+        self.c2 = Classroom.objects.create(
+            classroom_year="M.1", classroom_tap="2", school=self.s1
+        )
+        self.c3 = Classroom.objects.create(
+            classroom_year="M.2", classroom_tap="1", school=self.s2
+        )
+
+        self.st1 = Student.objects.create(
+            student_firstname="Anan",
+            student_lastname="Sukjai",
+            student_gender=Gender.MALE,
+            classroom=self.c1,
+        )
+        self.st2 = Student.objects.create(
+            student_firstname="Malee",
+            student_lastname="Deejai",
+            student_gender=Gender.FEMALE,
+            classroom=self.c2,
+        )
+        self.st3 = Student.objects.create(
+            student_firstname="Ananya",
+            student_lastname="Sukjai",
+            student_gender=Gender.FEMALE,
+            classroom=self.c3,
+        )
+
+    def test_create_student_and_reject_missing_classroom(self):
+        valid_resp = self.client.post(
+            "/api/v1/students/",
+            {
+                "student_firstname": "Nicha",
+                "student_lastname": "Wattana",
+                "student_gender": Gender.FEMALE,
+                "classroom": self.c1.classroom_id,
+            },
+            format="json",
+        )
+        self.assertEqual(valid_resp.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(valid_resp.data["classroom"], self.c1.classroom_id)
+        self.assertTrue(
+            Student.objects.filter(student_id=valid_resp.data["student_id"]).exists()
+        )
+
+        invalid_resp = self.client.post(
+            "/api/v1/students/",
+            {
+                "student_firstname": "Nicha",
+                "student_lastname": "Wattana",
+                "student_gender": Gender.FEMALE,
+            },
+            format="json",
+        )
+        self.assertEqual(invalid_resp.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("classroom", invalid_resp.data)
+
+    def test_list_and_filter_students(self):
+        all_resp = self.client.get("/api/v1/students/")
+        self.assertEqual(all_resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(all_resp.data), 3)
+
+        by_school = self.client.get("/api/v1/students/", {"school": self.s1.school_id})
+        self.assertEqual(by_school.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {item["student_id"] for item in by_school.data},
+            {self.st1.student_id, self.st2.student_id},
+        )
+
+        by_classroom = self.client.get(
+            "/api/v1/students/", {"classroom": self.c2.classroom_id}
+        )
+        self.assertEqual(by_classroom.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [item["student_id"] for item in by_classroom.data], [self.st2.student_id]
+        )
+
+        by_firstname = self.client.get("/api/v1/students/", {"firstname": "anan"})
+        self.assertEqual(by_firstname.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {item["student_id"] for item in by_firstname.data},
+            {self.st1.student_id, self.st3.student_id},
+        )
+
+        by_lastname = self.client.get("/api/v1/students/", {"lastname": "deejai"})
+        self.assertEqual(by_lastname.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [item["student_id"] for item in by_lastname.data], [self.st2.student_id]
+        )
+
+        by_gender = self.client.get("/api/v1/students/", {"gender": Gender.FEMALE})
+        self.assertEqual(by_gender.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            {item["student_id"] for item in by_gender.data},
+            {self.st2.student_id, self.st3.student_id},
+        )
+
+        combined = self.client.get(
+            "/api/v1/students/",
+            {
+                "school": self.s1.school_id,
+                "classroom": self.c1.classroom_id,
+                "firstname": "anan",
+                "gender": Gender.MALE,
+            },
+        )
+        self.assertEqual(combined.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            [item["student_id"] for item in combined.data], [self.st1.student_id]
+        )
+
+    def test_retrieve_student_detail_with_nested_classroom(self):
+        response = self.client.get(f"/api/v1/students/{self.st1.student_id}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["student_id"], self.st1.student_id)
+        self.assertEqual(
+            response.data["classroom"],
+            {
+                "classroom_id": self.c1.classroom_id,
+                "classroom_year": "M.1",
+                "classroom_tap": "1",
+                "school": self.s1.school_id,
+            },
+        )
+
+    def test_update_student_patch_and_put(self):
+        patch_resp = self.client.patch(
+            f"/api/v1/students/{self.st1.student_id}/",
+            {"student_firstname": "Anan-Updated"},
+            format="json",
+        )
+        self.assertEqual(patch_resp.status_code, status.HTTP_200_OK)
+        self.st1.refresh_from_db()
+        self.assertEqual(self.st1.student_firstname, "Anan-Updated")
+
+        put_resp = self.client.put(
+            f"/api/v1/students/{self.st1.student_id}/",
+            {
+                "student_firstname": "Arthit",
+                "student_lastname": "Sawang",
+                "student_gender": Gender.OTHER,
+                "classroom": self.c2.classroom_id,
+            },
+            format="json",
+        )
+        self.assertEqual(put_resp.status_code, status.HTTP_200_OK)
+        self.st1.refresh_from_db()
+        self.assertEqual(self.st1.student_firstname, "Arthit")
+        self.assertEqual(self.st1.student_gender, Gender.OTHER)
+        self.assertEqual(self.st1.classroom_id, self.c2.classroom_id)
+
+    def test_delete_student(self):
+        response = self.client.delete(f"/api/v1/students/{self.st1.student_id}/")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(
+            Student.objects.filter(student_id=self.st1.student_id).exists()
+        )
