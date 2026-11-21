@@ -10,9 +10,9 @@ class SchoolSerializer(serializers.ModelSerializer):
 
 
 class SchoolDetailSerializer(SchoolSerializer):
-    classroom_count = serializers.SerializerMethodField()
-    teacher_count = serializers.SerializerMethodField()
-    student_count = serializers.SerializerMethodField()
+    classroom_count = serializers.IntegerField(read_only=True)
+    teacher_count = serializers.IntegerField(read_only=True)
+    student_count = serializers.IntegerField(read_only=True)
 
     class Meta(SchoolSerializer.Meta):
         fields = [
@@ -21,24 +21,7 @@ class SchoolDetailSerializer(SchoolSerializer):
             "teacher_count",
             "student_count",
         ]
-
-    def get_classroom_count(self, obj):
-        count = getattr(obj, "classroom_count", None)
-        if count is not None:
-            return count
-        return obj.classrooms.count()
-
-    def get_teacher_count(self, obj):
-        count = getattr(obj, "teacher_count", None)
-        if count is not None:
-            return count
-        return Teacher.objects.filter(classrooms__school=obj).distinct().count()
-
-    def get_student_count(self, obj):
-        count = getattr(obj, "student_count", None)
-        if count is not None:
-            return count
-        return Student.objects.filter(classroom__school=obj).count()
+        read_only_fields = fields
 
 
 class ClassroomSerializer(serializers.ModelSerializer):
@@ -93,11 +76,19 @@ class TeacherSerializer(serializers.ModelSerializer):
         ]
 
 
-class TeacherDetailSerializer(TeacherSerializer):
+class TeacherDetailSerializer(serializers.ModelSerializer):
     classrooms = ClassroomSerializer(many=True, read_only=True)
 
-    class Meta(TeacherSerializer.Meta):
-        fields = [*TeacherSerializer.Meta.fields]
+    class Meta:
+        model = Teacher
+        fields = [
+            "teacher_id",
+            "teacher_firstname",
+            "teacher_lastname",
+            "teacher_gender",
+            "classrooms",
+        ]
+        read_only_fields = fields
 
 
 class StudentSerializer(serializers.ModelSerializer):
@@ -112,8 +103,16 @@ class StudentSerializer(serializers.ModelSerializer):
         ]
 
 
-class StudentDetailSerializer(StudentSerializer):
+class StudentDetailSerializer(serializers.ModelSerializer):
     classroom = ClassroomSerializer(read_only=True)
 
-    class Meta(StudentSerializer.Meta):
-        fields = [*StudentSerializer.Meta.fields]
+    class Meta:
+        model = Student
+        fields = [
+            "student_id",
+            "student_firstname",
+            "student_lastname",
+            "student_gender",
+            "classroom",
+        ]
+        read_only_fields = fields

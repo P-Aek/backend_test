@@ -1,4 +1,5 @@
 from django.db import models
+from django.db.models import Count
 
 
 class Gender(models.TextChoices):
@@ -7,11 +8,22 @@ class Gender(models.TextChoices):
     OTHER = "other", "Other"
 
 
+class SchoolQuerySet(models.QuerySet):
+    def with_counts(self):
+        return self.annotate(
+            classroom_count=Count("classrooms", distinct=True),
+            teacher_count=Count("classrooms__teachers", distinct=True),
+            student_count=Count("classrooms__students", distinct=True),
+        )
+
+
 class School(models.Model):
     school_id = models.BigAutoField(primary_key=True)
     school_fullname = models.CharField(max_length=255)
     school_shortname = models.CharField(max_length=50)
     school_add = models.TextField()
+
+    objects = SchoolQuerySet.as_manager()
 
     def __str__(self):
         return self.school_fullname

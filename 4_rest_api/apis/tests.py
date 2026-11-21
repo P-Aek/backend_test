@@ -1,7 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError
-from django.db.models import Count
 from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APITestCase
@@ -260,22 +259,9 @@ class SchoolSerializerTests(TestCase):
             classroom=other_c,
         )
 
-        data = SchoolDetailSerializer(school).data
-        self.assertEqual(data["school_id"], school.school_id)
-        self.assertEqual(data["classroom_count"], 2)
-        self.assertEqual(data["teacher_count"], 2)
-        self.assertEqual(data["student_count"], 2)
-
-        annotated_school = (
-            School.objects.filter(pk=school.pk)
-            .annotate(
-                classroom_count=Count("classrooms", distinct=True),
-                teacher_count=Count("classrooms__teachers", distinct=True),
-                student_count=Count("classrooms__students", distinct=True),
-            )
-            .get()
-        )
+        annotated_school = School.objects.with_counts().get(pk=school.pk)
         annotated_data = SchoolDetailSerializer(annotated_school).data
+        self.assertEqual(annotated_data["school_id"], school.school_id)
         self.assertEqual(annotated_data["classroom_count"], 2)
         self.assertEqual(annotated_data["teacher_count"], 2)
         self.assertEqual(annotated_data["student_count"], 2)
