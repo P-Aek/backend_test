@@ -1,6 +1,8 @@
 ## Question
 ![](/assets/q_indexing.png)
 ## Response Section
+**อธิบายข่อดี และข้อจำกัดของการทำ Database indexing**
+
 - **ข้อดี**
     - ค้นหาและอ่านข้อมูลได้เร็วขึ้นมาก
         - เปลี่ยนจากค้นหาทั้งตาราง เป็นค้นหาแบบ tree 
