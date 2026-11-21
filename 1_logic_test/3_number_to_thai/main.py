@@ -32,7 +32,7 @@ class Solution:
         "9" : "เก้า"
     }
 
-    place_words = ["", "สิบ", "ร้อย", "พัน", "หมื่น", "แสน", "ล้าน", "สิบล้าน"]
+    place_words = ["", "สิบ", "ร้อย", "พัน", "หมื่น", "แสน", "ล้าน"]
  
     def number_to_thai(self, number: int) -> str:
         # ดักค่าที่ไม่ใช่
@@ -45,6 +45,10 @@ class Solution:
         if number == 0:
             return self.digit_words["0"]
 
+        # อ่าน "สิบล้าน" 
+        if number == 10_000_000:
+            return "สิบล้าน"
+
         digits = str(number) # แปลงค่า number จาก int -> str
         words = [] # list เก็บค่า
 
@@ -54,7 +58,7 @@ class Solution:
 
             if digit == "0":
                 continue # ถ้าเจอ 0 ให้ไปต่อ
-            # เงื่อนไข
+
             if place_index == 1 and digit == "1":
                 words.append("สิบ")
             elif place_index == 1 and digit == "2":

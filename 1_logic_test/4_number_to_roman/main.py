@@ -38,7 +38,10 @@ class Solution:
     def number_to_roman(self, number: int) -> str:
         # ดักค่าที่ไม่เข้าเงื่อนไข
         if number < 0:
-            return "number can not less than 0"
+            return "number can not less than 0."
+        # เลขโรมันไม่มีเลข 0
+        if number < 1:
+            return "There is no zero in Roman numerals."
         # list เก็บ roman word ทีละค่า
         roman = []
         # sort key ใน roman_word
